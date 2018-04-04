@@ -14,9 +14,33 @@ local ngx_log = ngx.log
 local NGX_ERR = ngx.ERR
 local NGX_DEBUG = ngx.DEBUG
 
-local cache_key = "http://test/redis"
+local cache_key = "default"
 
 --https://github.com/wshirey/kong-plugin-response-cache
+
+local function get_key(conf)
+    local has_key = false
+    if conf.key then
+        ngx_log(NGX_ERR, conf.key)
+        cache_key = conf.key
+        for s in string.gmatch(conf.key, '$([%w_-]+)') do
+            has_key = true
+            ngx_log(NGX_ERR, "Find key [" .. s .. "]")
+            ngx_log(NGX_ERR, ngx.var[s])
+            if s == "scheme" then
+                cache_key = string.gsub(cache_key, "$" .. s, ngx.var[s] .. "://")
+            else
+                cache_key = string.gsub(cache_key, "$" .. s, ngx.var[s])
+            end
+        end
+    end
+
+    if not has_key then
+        cache_key = "default"
+    end
+
+    ngx_log(NGX_ERR, "cache_key = " .. cache_key)
+end
 
 local function connect_to_redis(conf)
     local red = redis:new()
@@ -52,16 +76,17 @@ end
 
 function CachedHandler:access(config)
     CachedHandler.super.access(self)
-    ngx_log(NGX_ERR, ngx.var.scheme)
-    ngx_log(NGX_ERR, ngx.var.uri)
-    ngx_log(NGX_ERR, ngx.var.arg_code)
+    --    ngx_log(NGX_ERR, ngx.var.scheme)
+    --    ngx_log(NGX_ERR, ngx.var.uri)
+    --    ngx_log(NGX_ERR, ngx.var.arg_code)
+
+    get_key(config)
 
     local ctx = ngx.ctx
     ctx.rt_body_chunks = {}
     ctx.rt_body_chunk_number = 1
 
-    --  $scheme$uri?code=$arg_code&time=$arg_time
-    require 'pl.pretty'.dump(config)
+    --    require 'pl.pretty'.dump(config)
     local red, err = connect_to_redis(conf)
     if err then
         ngx_log(NGX_ERR, "failed to connect to Redis: ", err)

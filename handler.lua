@@ -66,7 +66,7 @@ local function get_key(conf)
         cache_key = "default"
     end
 
-    expire_time = conf.cache_time * 60 * 1000
+    expire_time = conf.cache_time * 60
     ngx_log(NGX_ERR, "cache_key = " .. cache_key)
 end
 

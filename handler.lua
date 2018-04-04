@@ -15,9 +15,36 @@ local NGX_ERR = ngx.ERR
 local NGX_DEBUG = ngx.DEBUG
 
 local cache_key = "default"
-
+local expire_time = 60 * 60 * 1000
 --https://github.com/wshirey/kong-plugin-response-cache
 
+-- has_value 判断数组当中是否存val这个元素
+-- has_value来自于status_code，因此需要把元素转换为Number类型
+local function has_value(tab, val)
+    for index, value in ipairs(tab) do
+        if tonumber(value) == val then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- checkMethod 判断请求方法是否合法
+local function checkMethod(config)
+
+    for _, value in ipairs(config.methods) do
+        ngx_log(NGX_ERR, value)
+        if value == ngx.req.get_method() then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- get_key 生成cache_key
+-- 配置文件中的key中的变量必须以$开头. 例如$args_code, $scheme等
 local function get_key(conf)
     local has_key = false
     if conf.key then
@@ -39,9 +66,12 @@ local function get_key(conf)
         cache_key = "default"
     end
 
+    expire_time = conf.cache_time * 60 * 1000
     ngx_log(NGX_ERR, "cache_key = " .. cache_key)
 end
 
+-- connect_to_redis 链接redis服务器
+-- 当前redis连接信息硬编码为redis:6379
 local function connect_to_redis(conf)
     local red = redis:new()
 
@@ -65,9 +95,11 @@ local function write_red(premature, key, value)
 
     ok, err = red:set(key, value)
     if not ok then
-        ngx.say("failed to set dog: ", err)
+        ngx.say("failed to set cache: ", err)
         return
     end
+
+    red:expire(key, expire_time)
 end
 
 function CachedHandler:new()
@@ -93,11 +125,13 @@ function CachedHandler:access(config)
         return
     end
 
-    local cached_val, err = red:get(cache_key)
-    if cached_val and cached_val ~= ngx.null then
-        ngx_log(NGX_ERR, cached_val)
-        ngx.print(cached_val)
-        ngx.exit(200)
+    if checkMethod(config) then
+        local cached_val, err = red:get(cache_key)
+        if cached_val and cached_val ~= ngx.null then
+            ngx_log(NGX_ERR, cached_val)
+            ngx.print(cached_val)
+            ngx.exit(200)
+        end
     end
 end
 
@@ -108,8 +142,9 @@ function CachedHandler:body_filter(config)
     if eof then
         local body = table_concat(ctx.rt_body_chunks)
         ngx.arg[1] = body
-        ngx.timer.at(0, write_red, cache_key, body)
-        ngx_log(NGX_ERR, "Body_filter End")
+        if has_value(config.status_code, ngx.status) and checkMethod(config) then
+            ngx.timer.at(0, write_red, cache_key, body)
+        end
     else
         ctx.rt_body_chunks[ctx.rt_body_chunk_number] = chunk
         ctx.rt_body_chunk_number = ctx.rt_body_chunk_number + 1

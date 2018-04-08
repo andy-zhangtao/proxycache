@@ -49,7 +49,7 @@ local function get_key(conf)
     local has_key = false
     if conf.key then
         ngx_log(NGX_ERR, conf.key)
-        cache_key = conf.key
+
         for s in string.gmatch(conf.key, '$([%w_-]+)') do
             has_key = true
             ngx_log(NGX_ERR, "Find key [" .. s .. "]")
@@ -60,13 +60,19 @@ local function get_key(conf)
                 cache_key = string.gsub(cache_key, "$" .. s, ngx.var[s])
             end
         end
+
+        if string.len(conf.key) >0 and not has_key then
+            cache_key = conf.key
+            has_key = true
+        end
+
     end
 
     if not has_key then
         cache_key = "default"
     end
 
-    expire_time = conf.cache_time * 60 * 1000
+    expire_time = conf.cache_time * 60
     ngx_log(NGX_ERR, "cache_key = " .. cache_key)
 end
 
